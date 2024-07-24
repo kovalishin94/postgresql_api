@@ -3,7 +3,8 @@ import psycopg2
 import csv
 from io import StringIO
 from fastapi import FastAPI, Body
-from fastapi.responses import StreamingResponse, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse, Response, JSONResponse
 from typing import Annotated
 from dotenv import load_dotenv
 
@@ -12,17 +13,19 @@ load_dotenv()
 
 conn = psycopg2.connect(
     dbname=os.getenv('DBNAME'),
-    user = os.getenv('USER'),
-    password = os.getenv('PASSWORD'),
-    host = os.getenv('HOST'),
+    user=os.getenv('USER'),
+    password=os.getenv('PASSWORD'),
+    host=os.getenv('HOST'),
     port=os.getenv('PORT')
 )
+
 
 def serialize_data(cursor):
     columns = [col[0] for col in cursor.description]
     query_data = [dict(zip(columns, row)) for row in cursor.fetchall()]
     cursor.close()
     return query_data
+
 
 def generate_csv(data: list[dict]):
     output = StringIO()
@@ -32,11 +35,12 @@ def generate_csv(data: list[dict]):
     output.seek(0)
     return output
 
+
 @app.post("/")
-def main(sql: Annotated[str, Body()], token: Annotated[str, Body()]) -> Response:
+def main(sql: Annotated[str, Body()], token: Annotated[str, Body()]) -> Response | str:
     if token != os.getenv('TOKEN'):
-        return "Permisson denied"
-    
+        return "Permission denied"
+
     cursor = conn.cursor()
     cursor.execute(sql)
     result = serialize_data(cursor)
@@ -44,8 +48,10 @@ def main(sql: Annotated[str, Body()], token: Annotated[str, Body()]) -> Response
     response = StreamingResponse(generate_csv(result), media_type="text/csv")
     response.headers["Content-Disposition"] = "attachment; filename=data.csv"
 
-    
-    return response
+    result = jsonable_encoder(result)
+
+    return JSONResponse(result)
+
 
 if __name__ == "__main__":
     import uvicorn
